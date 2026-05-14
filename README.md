@@ -140,15 +140,68 @@ Skill này không phải `/slash command` mà kích hoạt bằng **trigger phra
 
 Xem chi tiết đầy đủ ở [`skills/gitlab-flow/SKILL.md`](skills/gitlab-flow/SKILL.md).
 
-## Add-on: `gitlab-sync` (deploy QA cho monorepo multi-app)
+## Sử dụng `gitlab-sync` (deploy QA cho monorepo multi-app)
 
-Nếu team dùng convention `main → builds/dev/<app>` để trigger CI/CD deploy QA và project là monorepo multi-app, cài thêm `gitlab-sync` từ repo gốc:
+Skill `gitlab-sync` pair với `gitlab-flow` nhưng vẫn ở repo gốc [`nguyenvanchiens/my-skills`](https://github.com/nguyenvanchiens/my-skills). Sau khi feature merged main qua `gitlab-flow`, Maintainer dùng `gitlab-sync` để đưa code từ `main` lên các nhánh `builds/dev/<app>` trigger deploy QA — đặc biệt khi 2 nhánh bị conflict.
+
+### Cài đặt
 
 ```bash
 npx skills add nguyenvanchiens/my-skills -s gitlab-sync -y -a claude-code --copy
 ```
 
-Xem chi tiết tại [`nguyenvanchiens/my-skills`](https://github.com/nguyenvanchiens/my-skills).
+### Khi nào cần `gitlab-sync`
+
+- Team dùng convention `main → builds/dev/<app>` để trigger CI/CD deploy QA
+- Project là **monorepo multi-app** (có nhiều nhánh build dạng `builds/dev/portal-web-admin`, `builds/dev/gift-api`, `builds/dev/portal-api`...)
+- `main → builds/dev/<app>` thỉnh thoảng bị conflict, cần resolve mà không leak code `builds/*` ngược về `main`
+
+Nếu team chỉ có 1 build branch hoặc không dùng convention này → không cần `gitlab-sync`.
+
+### Sơ đồ flow (4 bước)
+
+```
+main ──────●─────────────●  (giữ nguyên, không đụng vào)
+            \
+             ↓ (1) tạo sync branch từ main
+             ●─────────●  sync/main-to-dev-<app>
+                  ↑    ↑
+                  │   (3) resolve conflict (giữ phía main) + commit
+                  │
+                  (2) merge builds/dev/<app> vào sync
+                  │
+builds/dev/<app> ─●─┘─────●  ← (4) tạo MR sync/* → builds/dev/<app>
+```
+
+**Nguyên tắc**: code chảy 1 chiều `main → builds/dev/<app>`. KHÔNG bao giờ PR ngược `builds/* → main`.
+
+### Bảng trigger
+
+| Prompt | Hành động |
+|---|---|
+| **list build branches** | List tất cả `builds/dev/<app>` có trong repo, để user pick app cần sync |
+| **sync main to dev-&lt;app&gt;** | Sync `main → builds/dev/<app>`. Tạo nhánh `sync/main-to-dev-<app>`, merge `builds/dev/<app>` vào, resolve conflict, push, tạo MR. **HỎI user xác nhận** trước khi push |
+| **sync main to dev-all** | Sync nhiều app cùng lúc. Loop tuần tự, mỗi app 1 MR riêng, dừng giữa từng app để user confirm |
+| **kiểm tra build hygiene** / **audit all dev builds** | Phát hiện vi phạm rule "không commit thẳng `builds/*`". List commit lạ + đề xuất cleanup (cherry-pick về main hoặc reset build) |
+
+### Naming convention
+
+- **Sync branch**: `sync/main-to-dev-<app>` (ephemeral, xoá ngay sau khi MR merged)
+- **Commit message**: `chore(sync): resolve conflict main → builds/dev/<app>`
+- **MR target**: luôn là `builds/dev/<app>` — KHÔNG bao giờ là `main`
+
+### Out of scope
+
+Skill chỉ tập trung `main → builds/dev/<app>` vì các flow khác (`release → builds/prod`, cut release, cherry-pick hotfix) trong thực tế gần như luôn fast-forward, Maintainer làm tay được. Nếu sau này phát sinh nhu cầu sẽ mở rộng.
+
+### Safety rules
+
+- KHÔNG tạo MR `builds/* → main` dưới bất kỳ hình thức nào
+- KHÔNG force push vào `main`/`builds/*` (kể cả `--force-with-lease`) trừ khi user/Maintainer chủ động ra lệnh
+- KHÔNG dùng `git checkout --ours <file>` cho code logic mà không đọc qua diff
+- Hỏi user trước khi resolve nếu không chắc bên nào đúng (đặc biệt với `.env`, config, route)
+
+Xem chi tiết đầy đủ tại [`nguyenvanchiens/my-skills`](https://github.com/nguyenvanchiens/my-skills) (file `skills/gitlab-sync/SKILL.md`).
 
 ## Cấu trúc repo
 
