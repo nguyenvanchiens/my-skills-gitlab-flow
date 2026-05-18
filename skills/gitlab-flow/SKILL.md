@@ -1,6 +1,6 @@
 ---
 name: gitlab-flow
-description: Standard end-to-end workflow for shipping a feature/bugfix from a Jira task to a merged GitLab MR. Use when the user references a Jira task ID (WRA-XX, etc.), asks to "start a task", "create branch from task", "review the last change", "review the whole branch", "commit and push", "create a merge request", "review the MR !N", "post review result to the MR", "fix all issues", or "merge the request". Covers branch naming, commit format, MR creation, micro + macro code review (3-agent parallel), fix loop, and merge.
+description: Standard end-to-end workflow for shipping a feature/bugfix from a Jira task to a merged GitLab MR. Use when the user references a Jira task ID (WRA-XX, etc.), asks to "start a task", "create branch from task", "review the last change" / "review change" (optionally with "simplify" keyword, e.g. "review change simplify", to auto-clean before review), "review the whole branch", "commit and push", "create a merge request", "review the MR !N", "post review result to the MR", "fix all issues", or "merge the request". Covers branch naming, commit format, MR creation, micro + macro code review (3-agent parallel), fix loop, and merge.
 ---
 
 # GitLab Flow (Jira → Code → MR → Merge)
@@ -52,6 +52,26 @@ Quy trình chuẩn cho một feature/bugfix mới. Có 2 vai trò: **Developer**
 
 ### Target branch
 - MR luôn merge vào `main` trừ khi user chỉ định khác
+
+### Output language (review & report)
+
+**Mặc định tiếng Việt** cho mọi output của các trigger review/report — kể cả khi user gõ trigger bằng tiếng Anh ("review the last change", "review change simplify", "review the whole branch", "review the MR !N", "post review result to the MR"...). User KHÔNG cần phải nhắc lại bằng tiếng Việt mới nhận được output tiếng Việt.
+
+| Áp dụng cho | Phần phải tiếng Việt |
+|---|---|
+| `review the last change` / `review change` (± simplify) | Tóm tắt Step 0 simplify pass + danh sách issue `#1`, `#2`... (vấn đề + đề xuất fix) |
+| `review the whole branch` | Tóm tắt aggregate từ 3 agent + danh sách fix đã làm + status test/typecheck |
+| `review the MR !<N>` | Verdict + danh sách issue (cả "trạng thái issue cũ" và "issue mới") |
+| `post review result to the MR` | Nội dung Markdown comment đăng lên GitLab |
+| Tóm tắt sau `fix all issues` | Danh sách issue đã fix + đề xuất commit message |
+
+**Ngoại lệ giữ tiếng Anh** (không Việt hóa):
+- `type`/`scope` trong commit message (chuẩn CC: `feat`, `fix`, `auth`, `billing`...)
+- Tên technical/identifier: tên file, function, biến, branch, MR title prefix
+- Status keyword cố định: `APPROVE` / `REQUEST_CHANGES` / `COMMENT`, `✓ Resolved` / `❌ Still open` / `⚠️ Partially`
+- Tên agent / role / tool: `Reuse`, `Quality`, `Efficiency`, `glab`, `git`
+
+**Switch language**: user trả lời / tiếp tục bằng ngôn ngữ khác (English chẳng hạn) → từ message đó trở đi mới đổi sang ngôn ngữ user dùng. Không tự đoán "trigger English ⇒ output English".
 
 ## Triggers & Procedures
 
@@ -154,16 +174,33 @@ git ls-remote --heads origin    # check remote không còn old-name (nếu đã 
 - Không thêm tính năng/refactor ngoài scope task
 - Sau khi xong, tóm tắt ngắn các file đã thay đổi
 
-### "review the last change"
-1. Chạy `git diff` (hoặc `git diff HEAD` nếu đã staged) để xem thay đổi gần nhất
-2. Review theo các tiêu chí:
-   - Logic đúng với mô tả task không
-   - Có edge case nào chưa cover không
-   - Có vi phạm convention/coding standard không
-   - Có code thừa, dead code, hoặc abstraction không cần thiết
-   - Có lỗ hổng bảo mật (input validation, auth bypass, injection) không
-   - Có ảnh hưởng performance đáng kể không
-3. Báo cáo dưới dạng danh sách có đánh số: `#1`, `#2`, ... để user dễ tham chiếu khi fix
+### "review the last change" / "review change" (+ optional "simplify")
+
+Trigger match là lenient: thêm từ `simplify` bất kỳ vị trí trong câu để bật Step 0; không có thì bỏ qua Step 0.
+
+**Step 0 — Simplify pass** (chỉ chạy khi trigger chứa `simplify`):
+
+1. Capture uncommitted + staged diff (`git diff` và `git diff --cached`). Empty → báo skip Step 0 và sang Step 1.
+
+2. Scan diff theo 3 góc nhìn **Reuse / Quality / Efficiency** — danh sách flag chi tiết dùng chung với bảng Phase 2 của `review the whole branch` (xem section bên dưới). Inline Claude, không spawn agent vì scope hẹp.
+
+3. **Auto-fix trực tiếp** mọi finding rõ ràng — false positive thì skip, không cãi, không hỏi user từng issue. Fix độc lập ở các file khác nhau → batch parallel trong 1 message.
+
+4. Báo tóm tắt số issue đã fix + file đã đụng (hoặc "code đã sạch") rồi sang Step 1. **KHÔNG tự commit** — fix nằm ở working tree, gộp chung với review issues user fix sau.
+
+**Step 1 — Capture diff** cho review: `git diff` (hoặc `git diff HEAD` nếu đã staged). Trong simplify mode, đây là diff sau-fix.
+
+**Step 2 — Review** theo các tiêu chí:
+- Logic đúng với mô tả task không
+- Có edge case nào chưa cover không
+- Có vi phạm convention/coding standard không
+- Có code thừa, dead code, hoặc abstraction không cần thiết
+- Có lỗ hổng bảo mật (input validation, auth bypass, injection) không
+- Có ảnh hưởng performance đáng kể không
+
+**Step 3 — Báo cáo** dưới dạng danh sách có đánh số: `#1`, `#2`, ... để user dễ tham chiếu khi fix.
+
+**Lưu ý**: Simplify mode scope hẹp (chỉ uncommitted diff) + inline review. Diff lớn (>500 dòng) → dùng `review the whole branch` (3 agent song song) thay thế.
 
 ### "Commit and push"
 
