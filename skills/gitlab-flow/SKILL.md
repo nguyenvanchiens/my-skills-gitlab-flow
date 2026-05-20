@@ -666,44 +666,6 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>  ❌ XÓA
 4. Checkout về `main`, pull về bản mới nhất
 5. Báo merge thành công + commit hash trên main
 
-## Sau khi merge main: deploy QA cần sync `main → builds/dev/<app>`
-
-Skill `gitlab-flow` kết thúc khi MR feature merged vào `main`. Bước tiếp theo — đưa code lên QA — do skill **`gitlab-sync`** đảm nhận.
-
-### Khi nào dùng `gitlab-sync`
-
-- Sau khi feature merged main, Maintainer cần deploy QA cho 1 hoặc nhiều app
-- `main → builds/dev/<app>` không fast-forward được (có conflict)
-- Cần audit `builds/dev/*` xem có ai commit thẳng vi phạm rule không
-
-### Sơ đồ flow sync (4 bước)
-
-```
-main ──────●─────────────●  (giữ nguyên, không đụng vào)
-            \
-             ↓ (1) tạo sync branch từ main
-             ●─────────●  sync/main-to-dev-<app>
-                  ↑    ↑
-                  │   (3) resolve conflict (giữ phía main) + commit
-                  │
-                  (2) merge builds/dev/<app> vào sync
-                  │
-builds/dev/<app> ─●─┘─────●  ← (4) tạo MR sync/* → builds/dev/<app>
-```
-
-**Nguyên tắc**: code chảy 1 chiều `main → builds/dev/<app>`. KHÔNG bao giờ PR ngược `builds/* → main`.
-
-### Trigger gọi `gitlab-sync`
-
-| User nói | Trigger trong `gitlab-sync` |
-|---|---|
-| "có app nào", "list builds" | `list build branches` |
-| "sync main về QA cho gift-api" | `sync main to dev-gift-api` |
-| "deploy QA hết các app" | `sync main to dev-all` |
-| "check builds/dev có sạch không" | `kiểm tra build hygiene` |
-
-Chi tiết các bước resolve, naming convention, safety rule → xem `gitlab-sync/SKILL.md`.
-
 ## Safety rules
 
 - **KHÔNG force push** vào nhánh đã có MR mở (sẽ làm mất review history). Nếu phải sửa lịch sử, hỏi user trước
